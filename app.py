@@ -1,71 +1,75 @@
 import streamlit as st
 
-# Konfiguracija strane
 st.set_page_config(page_title="Scout Pilot", layout="wide")
 
-# Session state za posede i poene
-if "quarters" not in st.session_state:
-    st.session_state.quarters = {
-        "Q1": {"posessions": 0, "points": 0},
-        "Q2": {"posessions": 0, "points": 0},
-        "Q3": {"posessions": 0, "points": 0},
-        "Q4": {"posessions": 0, "points": 0},
-    }
-    st.session_state.current_q = "Q1"
-    st.session_state.history = []
+if "possessions" not in st.session_state:
+    st.session_state.possessions = []
+    st.session_state.current_possession = {}
+    st.session_state.lineup = []
+    st.session_state.quarter = "Q1"
+    st.session_state.game_id = 1
 
-# Header
-st.title("🏀 Scout Pilot - Tagovanje poseda i poena")
-st.markdown("### Test verzija aplikacije za scout analizu")
+st.title("🏀 Scout Pilot - Game Tagging")
 
-# Izbor četvrtine
-st.session_state.current_q = st.selectbox("Izaberi četvrtinu:", ["Q1", "Q2", "Q3", "Q4"])
+# Game and quarter
+st.sidebar.header("Game Info")
+st.session_state.game_id = st.sidebar.number_input("Game ID", value=st.session_state.game_id, min_value=1)
+st.session_state.quarter = st.sidebar.selectbox("Quarter", ["Q1", "Q2", "Q3", "Q4"], index=["Q1", "Q2", "Q3", "Q4"].index(st.session_state.quarter))
 
-# Funkcije za update
-def add_possession():
-    st.session_state.quarters[st.session_state.current_q]["posessions"] += 1
-    st.session_state.history.append(("posession", st.session_state.current_q))
+# Lineup
+with st.sidebar.expander("🧍‍♂️ Current Lineup (5 players)", expanded=True):
+    for i in range(5):
+        if len(st.session_state.lineup) < 5:
+            st.session_state.lineup.append("")
+        st.session_state.lineup[i] = st.text_input(f"Player {i+1}", value=st.session_state.lineup[i], key=f"player_{i}")
 
-def add_points(points):
-    st.session_state.quarters[st.session_state.current_q]["points"] += points
-    st.session_state.history.append(("points", st.session_state.current_q, points))
-
-def undo():
-    if st.session_state.history:
-        last = st.session_state.history.pop()
-        if last[0] == "posession":
-            st.session_state.quarters[last[1]]["posessions"] -= 1
-        elif last[0] == "points":
-            st.session_state.quarters[last[1]]["points"] -= last[2]
-
-# Dugmići
-col1, col2, col3, col4, col5 = st.columns(5)
+# Start or end possession
+col1, col2 = st.columns(2)
 with col1:
-    if st.button("➕ Posjed"):
-        add_possession()
+    if st.button("▶️ Start Possession"):
+        st.session_state.current_possession = {
+            "game_id": st.session_state.game_id,
+            "quarter": st.session_state.quarter,
+            "lineup": list(st.session_state.lineup),
+            "offense": "",
+            "finish": "",
+            "defense": "",
+            "paint_touch": False,
+            "off_reb_players": 0,
+            "off_reb_success": None,
+            "points": 0
+        }
+
 with col2:
-    if st.button("➕ 1 Poen"):
-        add_points(1)
-with col3:
-    if st.button("➕ 2 Poena"):
-        add_points(2)
-with col4:
-    if st.button("➕ 3 Poena"):
-        add_points(3)
-with col5:
-    if st.button("↩️ Undo"):
-        undo()
+    if st.button("⛔ End Possession"):
+        if st.session_state.current_possession:
+            st.session_state.possessions.append(st.session_state.current_possession)
+            st.success("Possession saved!")
+            st.session_state.current_possession = {}
+
+if st.session_state.current_possession:
+    st.markdown("### 📝 Tag Current Possession")
+
+    st.session_state.current_possession["offense"] = st.selectbox("Offensive Set", ["", "Delay", "Chin", "2 Down", "Iverson", "Spain", "Horns", "Stagger", "PNR", "Early Offense", "SLOB", "BLOB"], index=0)
+    st.session_state.current_possession["finish"] = st.selectbox("Finish Type", ["", "PNR", "Cut", "3pt", "Drive", "Post", "Off Screen", "Transition", "FT"], index=0)
+    st.session_state.current_possession["defense"] = st.selectbox("Opponent Defense", ["", "Drop", "Switch", "ICE", "Hedge", "Zone", "Man"], index=0)
+    st.session_state.current_possession["paint_touch"] = st.checkbox("Paint Touch?")
+    
+    st.session_state.current_possession["off_reb_players"] = st.slider("How many players went to offensive rebound?", 0, 5, 0)
+    st.session_state.current_possession["off_reb_success"] = st.radio("Did we get the offensive rebound?", [None, "Yes", "No"], index=0, horizontal=True)
+    
+    st.session_state.current_possession["points"] = st.slider("Points scored in this possession", 0, 4, 0)
 
 st.divider()
 
-# Prikaz rezultata
-for q in ["Q1", "Q2", "Q3", "Q4"]:
-    data = st.session_state.quarters[q]
-    st.subheader(f"📊 {q}")
-    st.write(f"• Posedi: {data['posessions']}")
-    st.write(f"• Poeni: {data['points']}")
-    if data['posessions'] > 0:
-        ppp = round(data['points'] / data['posessions'], 2)
-        st.write(f"• Poeni po posedu (PPP): {ppp}")
-    else:
-        st.write("• Poeni po posedu (PPP): -")
+# Data table
+st.subheader("📊 Tagged Possessions")
+if st.session_state.possessions:
+    import pandas as pd
+    df = pd.DataFrame(st.session_state.possessions)
+    st.dataframe(df, use_container_width=True)
+
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("⬇️ Download CSV", csv, "scout_data.csv", "text/csv")
+else:
+    st.info("No possessions logged yet.")
